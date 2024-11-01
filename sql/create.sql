@@ -179,7 +179,7 @@ DELIMITER //
 CREATE FUNCTION `fnGetNextTrackId`(
     `deviceid` VARCHAR(250),
     `isRandom` INT,
-	`currentTrackId` INT(10)
+    `currentTrackId` INT(10)
 
 ) RETURNS int(11)
 BEGIN
@@ -187,12 +187,18 @@ BEGIN
     DECLARE PlayCount INT DEFAULT NULL;
     DECLARE MyPos INT DEFAULT NULL;
     DECLARE NextPos INT DEFAULT NULL;
+    DECLARE NextSort INT DEFAULT NULL;
     SELECT AP_Pos INTO MyPos FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_TK_id = currentTrackId;
-	SELECT AP_Pos INTO NextPos FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_Pos = (SELECT AP_Pos FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_TK_id = currentTrackId)+1;
+    SELECT AP_Pos INTO NextPos FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_Pos = (SELECT AP_Pos FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_TK_id = currentTrackId)+1;
+    SELECT AP_Sort INTO NextSort FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_Sort = (SELECT AP_Sort FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_TK_id = currentTrackId)+1;
     IF (NextPos > MyPos) THEN
         SELECT AP_TK_id INTO TKid FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_Pos = (SELECT AP_Pos FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_TK_id = currentTrackId)+1;
     ELSEIF (isRandom = 0) THEN
-        SELECT TK_id, AP_Playcount INTO TKid, PlayCount FROM ActualPlaying INNER JOIN TracK ON AP_TK_id = TK_id WHERE AP_DV_id = deviceid ORDER BY AP_Playcount, AP_Sort, AP_TK_id LIMIT 1;
+    	IF (NextSort > MyPos) THEN
+        	SELECT AP_TK_id INTO TKid FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_Sort = (SELECT AP_Pos FROM ActualPlaying WHERE AP_DV_id = deviceid AND AP_TK_id = currentTrackId)+1;
+	ELSE
+        	SELECT TK_id, AP_Playcount INTO TKid, PlayCount FROM ActualPlaying INNER JOIN TracK ON AP_TK_id = TK_id WHERE AP_DV_id = deviceid ORDER BY AP_Playcount, AP_Sort, AP_TK_id LIMIT 1;
+        END IF;
     ELSE
     BEGIN	
         DECLARE MinPC INT DEFAULT NULL;
@@ -452,6 +458,53 @@ BEGIN
         SELECT deviceid, tmppl.tmp_TKid, tmppl.tmp_id, 0, NULL, NULL, 0 FROM tmppl;
 	END;
 	END IF;
+END//
+DELIMITER ;
+
+-- Exportiere Struktur von Prozedur spUpdateActualPlayingEpisode
+DROP PROCEDURE IF EXISTS `spUpdateActualPlayingEpisode`;
+DELIMITER //
+CREATE PROCEDURE `spUpdateActualPlayingEpisode`(
+        IN `deviceid` VARCHAR(250),
+        IN `searchEpisode` VARCHAR(500),
+        IN `searchArtist` VARCHAR(500)
+)
+    READS SQL DATA
+BEGIN
+        IF (SELECT 1 = 1 FROM DeVice WHERE DV_id = deviceid) THEN
+        BEGIN
+                SET @LikeEpisode = CONCAT('%', searchEpisode, '%');
+                SET @LikeArtist = CONCAT('%', searchArtist, '%');
+                DELETE FROM ActualPlaying WHERE AP_DV_id = deviceid;
+
+                DROP TABLE IF EXISTS tmppl;
+                CREATE TEMPORARY TABLE tmppl (`tmp_id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT, `tmp_TKid` INT(10) UNSIGNED NOT NULL, PRIMARY KEY (`tmp_id`));
+
+                INSERT INTO tmppl
+                SELECT null, TracK.TK_id
+                FROM TracK
+                LEFT JOIN ArtisT ON TK_AT_id = AT_id
+                LEFT JOIN AlbuM ON TK_AM_id = AM_id
+                WHERE REPLACE(AT_Name," ","") LIKE REPLACE(@LikeArtist," ","") AND AM_Name LIKE @LikeEpisode  AND TK_FileName LIKE "//audiobooks%"
+
+                ORDER BY AT_id, AM_Index, AM_id, TK_Index, TK_id;
+
+                IF !(SELECT EXISTS (SELECT 1 FROM tmppl)) THEN
+                BEGIN
+                        INSERT INTO tmppl
+                        SELECT null, TracK.TK_id
+                        FROM TracK
+                        LEFT JOIN ArtisT ON TK_AT_id = AT_id
+                        LEFT JOIN AlbuM ON TK_AM_id = AM_id
+                        WHERE AT_Name SOUNDS LIKE searchArtist AND AM_Name SOUNDS LIKE LikeEpisode AND TK_FileName LIKE "//audiobooks%"
+                        ORDER BY AT_id, AM_Index, AM_id, TK_Index, TK_id;
+                END;
+                END IF;
+
+                INSERT INTO ActualPlaying
+        SELECT deviceid, tmppl.tmp_TKid, tmppl.tmp_id, 0, NULL, NULL, 0 FROM tmppl;
+        END;
+        END IF;
 END//
 DELIMITER ;
 

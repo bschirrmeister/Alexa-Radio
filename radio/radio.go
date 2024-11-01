@@ -243,7 +243,6 @@ func radioHandler(echoReq *alexa.EchoRequest, echoResp *alexa.EchoResponse) {
 		log.Printf("Help intent")
 		fallthrough
 
-
         case "StartPlayList":
                 log.Printf("StartPlayList intent")
                 SearchString := strings.TrimSpace(echoReq.Request.Intent.Slots["PlayListName"].Value)
